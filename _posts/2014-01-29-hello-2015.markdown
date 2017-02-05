@@ -1,13 +1,13 @@
 ---
 layout:     post
-title:      "Hello 2017"
-subtitle:   " \"Hello World, Hello Blog\""
-date:       2017-02-05 20:00:00
+title:      "Tomcat7.0源码分析"
+subtitle:   " \"Tomcat7.0源码分析-启动过程(1)\""
+date:       2017-02-06 07:37:00
 author:     "Hyz"
 header-img: "img/post-bg-2015.jpg"
 catalog: true
 tags:
-    - 生活
+    - 源码分析
 ---
 
 > “新的一年开始了，准备把平时学习上一些知识沉淀下来，这里是个归纳总结的好地方 ”
@@ -15,18 +15,99 @@ tags:
 
 ## 前言
 
-2017 年,开始了。
-
-新的一年开始了，准备把平时学习上一些知识沉淀下来，这里是个归纳总结的好地方，加油贵在坚持。
+最近想试着写一些文章讲解tomcat的架构和设计原理及部分代码的实现流程，不光可以帮助自己归纳和总结对知识点的理解。同时也能帮助对tomcat感兴趣的朋友，更好的理解它。
+费话不多说，我们下面看下它的启动过程
 
 <p id = "build"></p>
 ---
 
 ## 正文
 
-准备在这里开始写东西了，过年一直想在github上写些东西，找了好多模板，没有特别喜欢的，在知乎上看到，黄玄的博客很喜欢，而且开源了，这里先向黄玄致敬。
+最近想试着写一些文章讲解tomcat的架构和设计原理及部分代码的实现流程，不光可以帮助自己归纳和总结对知识点的理解。同时也能帮助对tomcat感兴趣的朋友，更好的理解它。
+费话不多说，我们下面看下它的启动过程
 
-后面打算在这里，把平时遇上的知识点整理，方便自己日后查看。
+提供的信息分为以下几部分讲解：
+1. Tomcat服务器架构的概述与关键术语和概念。
+2. 如何启动Tomcat服务器。
+
+我们刚开始接触tomcat的时候都会去看server.xml.这个文件，它在TOMCAT中其解析出来的各个对象都是容器
+主要的描述
+Server: 一个Server代表整个容器
+Service:一个Service是一个中间件,存在在一个Server的内部,将一个或者多个Connectors绑定到一个特定的Engine上.是Service接口的一个实现
+Engine：一个Engine代表一个特定的Service的请求处理的管道.因为一个Service可以有多个Connectors,Engine接收并且处理从这  些Connectors过来的所有的请求.并且将结果送回合适的connector并发送给客户端.
+Host： 一个Host将一个域名和tomcat联系起来.一个Engine可以包含多个hosts
+Connector：一个Connector处理和客户端的通信.tomcat有多个connectors.这些个connectors都实现了Connector接口.
+Context ：一个Context代表一个web应用程序。一个Host可以包含多个contexts。每一个有不同的访问地址。
+
+
+Tomcat服务器启动。有几种不同的方式启动，包括：
+命令行启动。
+一个java程序启动
+
+
+通过命令行方式启动，windows下可以通过、tomcat/bin 下的批处理脚本，Liunx下有shell 脚本，做了同样的事情，其实都是调用了Bootstrap这个类
+
+接下来讲启动过程，看源码中有个Bootstrap类，这里有个main()方法可以启动TOMCAT
+一）初始化类装载器
+设置Catalina的工作路径也就是Catalina.home信息、Catalina.base信息，分别装载了，commonloader,sharedloader,catalinaloader.
+
+
+从上图可以看出初始化类加载器,主要是三个步骤.即创建一个公共类加载器commonLoader.然后以commonLoader为父类加载器.创标签名为"server"的catalinaLoader类加载器,和标签名为"shared"的sharedLoader类加载器.
+
+图中的createClassLoader()这个方法我们看下
+它主要是把
+catalina-home/lib ,
+catalina-home/lib/*.jar,
+catalina-home/lib,
+catalina-home/lib/*.jar
+给List<Repository> repositories = new ArrayList<Repository>();
+把上面这些值，添加到 repositories 里，然后加载这个类如下所示：
+ClassLoader classLoader = ClassLoaderFactory.createClassLoader(repositories, parent);
+这个createClassLoader()这个方法做了哪些工作，我们看下，特别简单
+先定义了一个
+
+
+截个全图给大家看下
+
+
+
+然后我们关注一个 for 循环方法里的，repositories，这个LIST里面都存了些什么，如果细心的读者朋友，会发现，它里面其实存的是路径和类型，
+
+
+这块可以看到，为了拿到这两个值location 和 type ，然后拼出lib路径，添加到 Set<URL> 中，
+set里存的什么，不够直观给大家看张图
+
+
+
+是不是一下就清晰了，有种豁然开朗的感觉。原来就是存的这个呀，是吧
+最后把这些信息,变成一个包含仓库中jar包文件的URL路径的数组，然后以些数组为参数返回一个标准的类加载器。
+
+并且注册服务器类加载器返回，这里这个createClassLoader这个类做的活就结束了。
+initClassLoaders这个类所做的也就结束了。
+设置线程的上下文类加载器,调用java的loadClass方法，
+
+创建 catalina启动，这里说下，启动过程中，做了一下包安全级别的隔离工作，返回，并把bootstrap里的内容传给daemon ,daemon 是一个守护进程。
+看下图更清晰
+
+
+bootstrap里的存在的如下图
+
+
+首次启动会把command这个变量设置为start，下面会比较，如果是command.equals("start"),然后设置标志，加载守护进程，接着看下图
+
+
+
+
+
+
+启动一个新的服务实例
+调用Catalina的initDirs()、initNaming()初始化catalinaHome、catalina.useNaming等信息。
+创建Digester对象，调用createStartDigester创建与配置Digester信息，载入Server.xml配置文件，使用Digester解析Server.xml文件，并根据Server文件的配置信息创建Server、Service、Engine、Host、Valve、Realm、Connector、Listener、Resource等对象。
+Digester通过 sax 方式解析，其实是一个Apache开源项目，有兴趣的可以看下，这里不多描述。
+设置当前Catalina为StandardServer的Catalina对象，调用initStreams。
+调用StandardServer的init方法初始化Server。
+到这里，Catalina已经载入完成，就差一步启动了
+通过反射调用Catalina的load()方法和Catalina的start()方法。
 
 
 
